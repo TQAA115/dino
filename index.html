@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>小恐龍跑酷</title>
+  <style>
+    :root {
+      --sky-top: #bfe7ff;
+      --sky-bottom: #eaf8ff;
+      --ground: #7dbf5c;
+      --ground-dark: #5d9c42;
+      --ground-line: #d7f4a8;
+      --text: #2d3d32;
+      --panel: rgba(255, 255, 255, 0.8);
+      --accent: #ffb703;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+      background: linear-gradient(180deg, #dff6ff 0%, #cfe9ff 100%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .game-shell {
+      position: relative;
+      width: min(92vw, 960px);
+      height: min(72vw, 360px);
+      max-height: 78vh;
+      border-radius: 18px;
+      overflow: hidden;
+      background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%);
+      box-shadow: 0 18px 40px rgba(35, 74, 110, 0.18);
+      border: 4px solid rgba(255, 255, 255, 0.7);
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      touch-action: manipulation;
+      cursor: pointer;
+    }
+
+    .hud {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .score-box,
+    .sound-toggle {
+      background: rgba(255, 255, 255, 0.75);
+      border: 2px solid rgba(61, 91, 112, 0.2);
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(44, 70, 89, 0.08);
+      backdrop-filter: blur(2px);
+    }
+
+    .score-box {
+      min-width: 120px;
+      padding: 6px 10px;
+      font-weight: 700;
+      font-size: 16px;
+      text-align: center;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+
+    .sound-toggle {
+      width: 42px;
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      pointer-events: all;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    @media (max-width: 640px) {
+      body {
+        padding: 10px;
+      }
+
+      .game-shell {
+        width: 96vw;
+        height: 72vh;
+        min-height: 300px;
+        border-radius: 12px;
+      }
+
+      .hud {
+        top: 10px;
+        right: 10px;
+      }
+
+      .score-box {
+        min-width: 94px;
+        font-size: 14px;
+      }
+
+      .sound-toggle {
+        width: 36px;
+        height: 36px;
+        font-size: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-shell">
+    <div class="hud">
+      <div class="score-box" id="scoreBox">分數：0</div>
+      <div class="sound-toggle" id="soundToggle" aria-label="音效開關">🔊</div>
+    </div>
+    <canvas id="gameCanvas" width="960" height="360"></canvas>
+  </div>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const scoreBox = document.getElementById('scoreBox');
+      const soundToggle = document.getElementById('soundToggle');
+
+      const STORAGE_KEY = 'dinoRunnerHighScore';
+      const groundY = 288;
+      const world = {
+        width: canvas.width,
+        height: canvas.height,
+        mode: 'start',
+        lastTime: 0,
+        speed: 260,
+        score: 0,
+        highScore: Number(localStorage.getItem(STORAGE_KEY) || 0),
+        spawnTimer: 1200,
+        nextSpawnDelay: 1400,
+        clouds: [],
+        obstacles: [],
+        audioEnabled: true,
+        audioCtx: null,
+        totalTime: 0,
+      };
+
+      const player = {
+        x: 90,
+        y: groundY - 44,
+        width: 36,
+        height: 44,
+        vy: 0,
+        gravity: 1800,
+        jumpPower: 670,
+        grounded: true,
+        runFrame: 0,
+        rotation: 0,
+      };
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function randomRange(min, max) {
+        return min + Math.random() * (max - min);
+      }
+
+      function ensureAudio() {
+        if (!world.audioEnabled) return null;
+        if (!world.audioCtx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return null;
+          world.audioCtx = new AudioCtx();
+        }
+
+        if (world.audioCtx.state === 'suspended') {
+          world.audioCtx.resume();
+        }
+
+        return world.audioCtx;
+      }
+
+      function playTone(frequency, duration, type, volume, sweep = 0) {
+        const audioCtx = ensureAudio();
+        if (!audioCtx) return;
+
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+        if (sweep !== 0) {
+          oscillator.frequency.linearRampToValueAtTime(
+            frequency + sweep,
+            audioCtx.currentTime + duration
+          );
+        }
+
+        gainNode.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(volume, audioCtx.currentTime + 0.02);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + duration);
+      }
+
+      function playJumpSound() {
+        playTone(540, 0.12, 'square', 0.05, 220);
+      }
+
+      function playCrashSound() {
+        playTone(120, 0.28, 'sawtooth', 0.08, -140);
+      }
+
+      function playStartSound() {
+        playTone(420, 0.1, 'triangle', 0.04, 100);
+      }
+
+      function toggleSound() {
+        world.audioEnabled = !world.audioEnabled;
+        soundToggle.textContent = world.audioEnabled ? '🔊' : '🔇';
+
+        if (world.audioEnabled) {
+          ensureAudio();
+        }
+      }
+
+      function resetPlayer() {
+        player.y = groundY - player.height;
+        player.vy = 0;
+        player.grounded = true;
+        player.runFrame = 0;
+      }
+
+      function resetGameState() {
+        world.mode = 'playing';
+        world.score = 0;
+        world.speed = 260;
+        world.totalTime = 0;
+        world.spawnTimer = 1200;
+        world.nextSpawnDelay = 1400;
+        world.obstacles = [];
+        world.clouds = [];
+        for (let i = 0; i < 7; i++) {
+          world.clouds.push({
+            x: randomRange(40, canvas.width - 40),
+            y: randomRange(30, 120),
+            w: randomRange(40, 80),
+            h: randomRange(20, 32),
+            speed: randomRange(10, 25),
+          });
+        }
+        resetPlayer();
+        updateScoreDisplay();
+      }
+
+      function startGame() {
+        if (world.mode === 'playing') return;
+
+        if (world.mode === 'start') {
+          playStartSound();
+        }
+
+        resetGameState();
+      }
+
+      function gameOver() {
+        if (world.mode !== 'playing') return;
+
+        world.mode = 'gameOver';
+        playCrashSound();
+
+        if (world.score > world.highScore) {
+          world.highScore = Math.floor(world.score);
+          localStorage.setItem(STORAGE_KEY, String(world.highScore));
+        }
+
+        updateScoreDisplay();
+      }
+
+      function updateScoreDisplay() {
+        scoreBox.textContent = '分數：' + Math.floor(world.score);
+      }
+
+      function jump() {
+        if (world.mode === 'start') {
+          startGame();
+          return;
+        }
+
+        if (world.mode === 'gameOver') {
+          return;
+        }
+
+        if (player.grounded && world.mode === 'playing') {
+          player.vy = -player.jumpPower;
+          player.grounded = false;
+          playJumpSound();
+        }
+      }
+
+      function createCloud() {
+        world.clouds.push({
+          x: canvas.width + 30,
+          y: randomRange(18, 100),
+          w: randomRange(38, 72),
+          h: randomRange(16, 28),
+          speed: randomRange(10, 26),
+        });
+      }
+
+      function createObstacle() {
+        const type = Math.random() < 0.7 ? 'cactus' : 'rock';
+        const width = type === 'cactus' ? randomRange(18, 32) : randomRange(20, 36);
+        const height = type === 'cactus' ? randomRange(28, 52) : randomRange(24, 40);
+
+        world.obstacles.push({
+          type,
+          x: canvas.width + 20,
+          y: groundY - height,
+          width,
+          height,
+          color: type === 'cactus' ? '#4cb05f' : '#7a7a7a',
+          passed: false,
+        });
+      }
+
+      function updateClouds(dt) {
+        for (let i = world.clouds.length - 1; i >= 0; i--) {
+          const cloud = world.clouds[i];
+          cloud.x -= cloud.speed * dt;
+
+          if (cloud.x + cloud.w < -30) {
+            world.clouds.splice(i, 1);
+          }
+        }
+
+        while (world.clouds.length < 7) {
+          createCloud();
+        }
+      }
+
+      function updatePlayer(dt) {
+        player.vy += player.gravity * dt;
+        player.y += player.vy * dt;
+
+        const groundTop = groundY - player.height;
+        if (player.y >= groundTop) {
+          player.y = groundTop;
+          player.vy = 0;
+          player.grounded = true;
+        }
+
+        player.runFrame += dt * 16;
+      }
+
+      function updateObstacles(dt) {
+        for (let i = world.obstacles.length - 1; i >= 0; i--) {
+          const obstacle = world.obstacles[i];
+          obstacle.x -= world.speed * dt;
+
+          if (!obstacle.passed && obstacle.x + obstacle.width < player.x) {
+            obstacle.passed = true;
+          }
+
+          if (obstacle.x + obstacle.width < -20) {
+            world.obstacles.splice(i, 1);
+          }
+        }
+      }
+
+      function collisionCheck() {
+        const dino = {
+          x: player.x,
+          y: player.y,
+          width: player.width,
+          height: player.height,
+        };
+
+        for (const obstacle of world.obstacles) {
+          const rect = {
+            x: obstacle.x,
+            y: obstacle.y,
+            width: obstacle.width,
+            height: obstacle.height,
+          };
+
+          const overlapX = dino.x + dino.width > rect.x && dino.x < rect.x + rect.width;
+          const overlapY = dino.y + dino.height > rect.y && dino.y < rect.y + rect.height;
+
+          if (overlapX && overlapY) {
+            gameOver();
+            return;
+          }
+        }
+      }
+
+      function updateDifficulty() {
+        world.speed = clamp(260 + world.score * 0.9, 260, 620);
+        const elapsed = Math.max(world.score, 0);
+        world.nextSpawnDelay = clamp(1500 - elapsed * 5, 700, 1500);
+      }
+
+      function updateGame(dt) {
+        world.totalTime += dt * 1000;
+        world.score += dt * 12;
+        updateDifficulty();
+
+        world.spawnTimer -= dt * 1000;
+        if (world.spawnTimer <= 0) {
+          createObstacle();
+          world.spawnTimer = world.nextSpawnDelay + randomRange(-150, 180);
+        }
+
+        updateClouds(dt);
+        updatePlayer(dt);
+        updateObstacles(dt);
+        collisionCheck();
+
+        updateScoreDisplay();
+      }
+
+      function drawBackground() {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#bfe7ff');
+        gradient.addColorStop(1, '#e9f9ff');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#ffde59';
+        ctx.beginPath();
+        ctx.arc(canvas.width - 110, 52, 26, 0, Math.PI * 2);
+        ctx.fill();
+
+        for (const cloud of world.clouds) {
+          drawCloud(cloud.x, cloud.y, cloud.w, cloud.h);
+        }
+      }
+
+      function drawCloud(x, y, w, h) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.fillRect(x, y + h * 0.35, w, h * 0.7);
+        ctx.fillRect(x + w * 0.2, y, w * 0.55, h * 0.7);
+        ctx.fillRect(x + w * 0.5, y + h * 0.15, w * 0.4, h * 0.6);
+      }
+
+      function drawGround() {
+        ctx.fillStyle = '#7ec85d';
+        ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
+        ctx.fillStyle = '#5ea14b';
+        ctx.fillRect(0, groundY, canvas.width, 6);
+
+        ctx.fillStyle = '#d8f4ac';
+        ctx.fillRect(0, groundY + 12, canvas.width, 2);
+
+        const step = 26;
+        for (let x = -((world.totalTime * 0.05) % step); x < canvas.width + step; x += step) {
+          ctx.fillStyle = '#d8f4ac';
+          ctx.fillRect(x, groundY + 18, 12, 2);
+        }
+      }
+
+      function drawDino() {
+        const px = player.x;
+        const py = player.y;
+        const legPhase = Math.sin(player.runFrame) * (player.grounded ? 1 : 0.2);
+
+        ctx.save();
+        ctx.translate(px, py);
+
+        if (player.grounded) {
+          ctx.fillStyle = '#2aa34a';
+          ctx.fillRect(10, 8, 14, 18);
+          ctx.fillRect(0, 20, 12, 12);
+          ctx.fillRect(24, 18, 12, 12);
+
+          ctx.fillStyle = '#1b8b3a';
+          ctx.fillRect(3, 12, 7, 8);
+          ctx.fillRect(25, 12, 7, 8);
+
+          ctx.fillStyle = '#3dbc5d';
+          ctx.fillRect(12, 0, 16, 10);
+          ctx.fillRect(9, 10, 4, 5);
+          ctx.fillRect(25, 10, 4, 5);
+
+          ctx.fillStyle = '#000';
+          ctx.fillRect(25, 2, 2, 2);
+          ctx.fillRect(18, 2, 2, 2);
+
+          ctx.fillStyle = '#f8f8f8';
+          ctx.fillRect(10, 6, 3, 3);
+          ctx.fillRect(21, 6, 3, 3);
+
+          ctx.fillStyle = '#3dbc5d';
+          ctx.fillRect(12 + (legPhase > 0 ? 4 : -4), 30, 5, 10);
+          ctx.fillRect(23 + (legPhase > 0 ? -4 : 4), 30, 5, 10);
+        } else {
+          ctx.fillStyle = '#2aa34a';
+          ctx.fillRect(10, 8, 14, 18);
+          ctx.fillRect(0, 20, 12, 12);
+          ctx.fillRect(24, 18, 12, 12);
+
+          ctx.fillStyle = '#1b8b3a';
+          ctx.fillRect(3, 12, 7, 8);
+          ctx.fillRect(25, 12, 7, 8);
+
+          ctx.fillStyle = '#3dbc5d';
+          ctx.fillRect(12, 0, 16, 10);
+          ctx.fillRect(9, 10, 4, 5);
+          ctx.fillRect(25, 10, 4, 5);
+
+          ctx.fillStyle = '#000';
+          ctx.fillRect(25, 2, 2, 2);
+          ctx.fillRect(18, 2, 2, 2);
+
+          ctx.fillStyle = '#f8f8f8';
+          ctx.fillRect(10, 6, 3, 3);
+          ctx.fillRect(21, 6, 3, 3);
+
+          ctx.fillStyle = '#3dbc5d';
+          ctx.fillRect(12, 30, 5, 10);
+          ctx.fillRect(23, 30, 5, 10);
+        }
+
+        ctx.restore();
+      }
+
+      function drawObstacle(obstacle) {
+        ctx.save();
+        ctx.translate(obstacle.x, obstacle.y);
+
+        if (obstacle.type === 'cactus') {
+          ctx.fillStyle = '#3ba55b';
+          ctx.fillRect(6, 0, 10, obstacle.height);
+          ctx.fillRect(0, 16, obstacle.width, 8);
+          ctx.fillRect(obstacle.width - 10, 8, 10, obstacle.height - 8);
+
+          ctx.fillStyle = '#2a8d4a';
+          ctx.fillRect(12, 8, 3, 14);
+          ctx.fillRect(3, 14, 3, 12);
+          ctx.fillRect(14, 24, 3, 12);
+        } else {
+          ctx.fillStyle = '#7f7f7f';
+          ctx.fillRect(2, 8, obstacle.width - 8, obstacle.height - 8);
+          ctx.fillRect(4, 0, obstacle.width - 12, 8);
+          ctx.fillStyle = '#999';
+          ctx.fillRect(6, 4, 6, 6);
+        }
+
+        ctx.restore();
+      }
+
+      function drawTitleScreen() {
+        ctx.fillStyle = 'rgba(17, 34, 40, 0.12)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#2d3d32';
+        ctx.font = 'bold 36px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('小恐龍跑酷', canvas.width / 2, canvas.height / 2 - 30);
+
+        ctx.font = '22px "Segoe UI", sans-serif';
+        ctx.fillText('按 SPACE 開始遊戲', canvas.width / 2, canvas.height / 2 + 20);
+
+        drawDinoAtCenter(280, 210, 1.4);
+      }
+
+      function drawDinoAtCenter(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+
+        ctx.fillStyle = '#2aa34a';
+        ctx.fillRect(10, 8, 14, 18);
+        ctx.fillRect(0, 20, 12, 12);
+        ctx.fillRect(24, 18, 12, 12);
+        ctx.fillRect(12, 0, 16, 10);
+        ctx.fillRect(9, 10, 4, 5);
+        ctx.fillRect(25, 10, 4, 5);
+        ctx.fillRect(3, 12, 7, 8);
+        ctx.fillRect(25, 12, 7, 8);
+
+        ctx.fillStyle = '#000';
+        ctx.fillRect(25, 2, 2, 2);
+        ctx.fillRect(18, 2, 2, 2);
+        ctx.fillStyle = '#f8f8f8';
+        ctx.fillRect(10, 6, 3, 3);
+        ctx.fillRect(21, 6, 3, 3);
+        ctx.fillStyle = '#3dbc5d';
+        ctx.fillRect(12, 30, 5, 10);
+        ctx.fillRect(23, 30, 5, 10);
+
+        ctx.restore();
+      }
+
+      function drawGameOver() {
+        ctx.fillStyle = 'rgba(17, 34, 40, 0.18)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#2d3d32';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 42px "Segoe UI", sans-serif';
+        ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 60);
+
+        ctx.font = '24px "Segoe UI", sans-serif';
+        ctx.fillText('分數：' + Math.floor(world.score), canvas.width / 2, canvas.height / 2 + 0);
+        ctx.fillText('最高分：' + world.highScore, canvas.width / 2, canvas.height / 2 + 36);
+        ctx.fillText('按 R 重新開始', canvas.width / 2, canvas.height / 2 + 82);
+      }
+
+      function drawHUD() {
+        ctx.fillStyle = '#2d3d32';
+        ctx.textAlign = 'right';
+        ctx.font = 'bold 24px "Segoe UI", sans-serif';
+        ctx.fillText('分數：' + Math.floor(world.score), canvas.width - 24, 32);
+
+        ctx.textAlign = 'left';
+        ctx.font = '18px "Segoe UI", sans-serif';
+        if (world.mode === 'gameOver') {
+          ctx.fillText('最高分：' + world.highScore, 24, 32);
+        }
+      }
+
+      function render() {
+        drawBackground();
+        drawGround();
+
+        for (const obstacle of world.obstacles) {
+          drawObstacle(obstacle);
+        }
+
+        drawDino();
+
+        if (world.mode === 'start') {
+          drawTitleScreen();
+        }
+
+        if (world.mode === 'gameOver') {
+          drawGameOver();
+        }
+
+        drawHUD();
+      }
+
+      function loop(timestamp) {
+        if (!world.lastTime) world.lastTime = timestamp;
+        const dt = Math.min((timestamp - world.lastTime) / 1000, 0.033);
+        world.lastTime = timestamp;
+
+        if (world.mode === 'playing') {
+          updateGame(dt);
+        }
+
+        render();
+        requestAnimationFrame(loop);
+      }
+
+      function handleKeydown(event) {
+        const code = event.code;
+        const key = event.key.toLowerCase();
+
+        if (code === 'Space' || code === 'ArrowUp') {
+          event.preventDefault();
+          if (world.mode === 'start') {
+            startGame();
+          } else if (world.mode === 'playing') {
+            jump();
+          }
+        }
+
+        if (key === 'r') {
+          event.preventDefault();
+          if (world.mode === 'gameOver' || world.mode === 'start') {
+            startGame();
+          }
+        }
+      }
+
+      function handlePointerDown(event) {
+        if (event.target !== canvas) return;
+
+        if (world.mode === 'start') {
+          startGame();
+          return;
+        }
+
+        if (world.mode === 'playing') {
+          jump();
+        }
+      }
+
+      function init() {
+        ctx.imageSmoothingEnabled = false;
+        soundToggle.addEventListener('click', toggleSound);
+        document.addEventListener('keydown', handleKeydown);
+        canvas.addEventListener('pointerdown', handlePointerDown);
+
+        for (let i = 0; i < 7; i++) {
+          world.clouds.push({
+            x: randomRange(40, canvas.width - 40),
+            y: randomRange(28, 110),
+            w: randomRange(42, 75),
+            h: randomRange(18, 30),
+            speed: randomRange(10, 22),
+          });
+        }
+
+        updateScoreDisplay();
+        requestAnimationFrame(loop);
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
