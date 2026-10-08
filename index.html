@@ -149,6 +149,8 @@
       const ctx = canvas.getContext('2d');
       const scoreBox = document.getElementById('scoreBox');
       const soundToggle = document.getElementById('soundToggle');
+      const playerImage = new Image();
+      playerImage.src = '200.gif';
 
       const STORAGE_KEY = 'dinoRunnerHighScore';
       const groundY = 288;
@@ -488,67 +490,9 @@
       }
 
       function drawDino() {
-        const px = player.x;
-        const py = player.y;
-        const legPhase = Math.sin(player.runFrame) * (player.grounded ? 1 : 0.2);
-
         ctx.save();
-        ctx.translate(px, py);
-
-        if (player.grounded) {
-          ctx.fillStyle = '#2aa34a';
-          ctx.fillRect(10, 8, 14, 18);
-          ctx.fillRect(0, 20, 12, 12);
-          ctx.fillRect(24, 18, 12, 12);
-
-          ctx.fillStyle = '#1b8b3a';
-          ctx.fillRect(3, 12, 7, 8);
-          ctx.fillRect(25, 12, 7, 8);
-
-          ctx.fillStyle = '#3dbc5d';
-          ctx.fillRect(12, 0, 16, 10);
-          ctx.fillRect(9, 10, 4, 5);
-          ctx.fillRect(25, 10, 4, 5);
-
-          ctx.fillStyle = '#000';
-          ctx.fillRect(25, 2, 2, 2);
-          ctx.fillRect(18, 2, 2, 2);
-
-          ctx.fillStyle = '#f8f8f8';
-          ctx.fillRect(10, 6, 3, 3);
-          ctx.fillRect(21, 6, 3, 3);
-
-          ctx.fillStyle = '#3dbc5d';
-          ctx.fillRect(12 + (legPhase > 0 ? 4 : -4), 30, 5, 10);
-          ctx.fillRect(23 + (legPhase > 0 ? -4 : 4), 30, 5, 10);
-        } else {
-          ctx.fillStyle = '#2aa34a';
-          ctx.fillRect(10, 8, 14, 18);
-          ctx.fillRect(0, 20, 12, 12);
-          ctx.fillRect(24, 18, 12, 12);
-
-          ctx.fillStyle = '#1b8b3a';
-          ctx.fillRect(3, 12, 7, 8);
-          ctx.fillRect(25, 12, 7, 8);
-
-          ctx.fillStyle = '#3dbc5d';
-          ctx.fillRect(12, 0, 16, 10);
-          ctx.fillRect(9, 10, 4, 5);
-          ctx.fillRect(25, 10, 4, 5);
-
-          ctx.fillStyle = '#000';
-          ctx.fillRect(25, 2, 2, 2);
-          ctx.fillRect(18, 2, 2, 2);
-
-          ctx.fillStyle = '#f8f8f8';
-          ctx.fillRect(10, 6, 3, 3);
-          ctx.fillRect(21, 6, 3, 3);
-
-          ctx.fillStyle = '#3dbc5d';
-          ctx.fillRect(12, 30, 5, 10);
-          ctx.fillRect(23, 30, 5, 10);
-        }
-
+        ctx.translate(player.x, player.y);
+        ctx.drawImage(playerImage, 0, 0, player.width, player.height);
         ctx.restore();
       }
 
@@ -596,27 +540,7 @@
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(scale, scale);
-
-        ctx.fillStyle = '#2aa34a';
-        ctx.fillRect(10, 8, 14, 18);
-        ctx.fillRect(0, 20, 12, 12);
-        ctx.fillRect(24, 18, 12, 12);
-        ctx.fillRect(12, 0, 16, 10);
-        ctx.fillRect(9, 10, 4, 5);
-        ctx.fillRect(25, 10, 4, 5);
-        ctx.fillRect(3, 12, 7, 8);
-        ctx.fillRect(25, 12, 7, 8);
-
-        ctx.fillStyle = '#000';
-        ctx.fillRect(25, 2, 2, 2);
-        ctx.fillRect(18, 2, 2, 2);
-        ctx.fillStyle = '#f8f8f8';
-        ctx.fillRect(10, 6, 3, 3);
-        ctx.fillRect(21, 6, 3, 3);
-        ctx.fillStyle = '#3dbc5d';
-        ctx.fillRect(12, 30, 5, 10);
-        ctx.fillRect(23, 30, 5, 10);
-
+        ctx.drawImage(playerImage, 0, 0, player.width, player.height);
         ctx.restore();
       }
 
