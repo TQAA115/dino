@@ -151,6 +151,8 @@
       const soundToggle = document.getElementById('soundToggle');
       const playerImage = new Image();
       playerImage.src = '200.gif';
+      const blipSound = new Audio('blip01.mp3');
+      blipSound.preload = 'auto';
 
       const STORAGE_KEY = 'dinoRunnerHighScore';
       const groundY = 288;
@@ -236,8 +238,15 @@
         playTone(540, 0.12, 'square', 0.05, 220);
       }
 
-      function playCrashSound() {
-        playTone(120, 0.28, 'sawtooth', 0.08, -140);
+      function playBlipSound() {
+        if (!world.audioEnabled) return;
+        blipSound.currentTime = 0;
+        const playback = blipSound.play();
+        if (playback) {
+          playback.catch((error) => {
+            console.error('Failed to play blip01.mp3:', error);
+          });
+        }
       }
 
       function playStartSound() {
@@ -296,7 +305,7 @@
         if (world.mode !== 'playing') return;
 
         world.mode = 'gameOver';
-        playCrashSound();
+        playBlipSound();
 
         if (world.score > world.highScore) {
           world.highScore = Math.floor(world.score);
